@@ -6,23 +6,26 @@ import numpy
 import imutils
 from skimage.metrics import structural_similarity as compare_ssim
 
-OS_PATH=os.path.join(os.getcwd(), "TestPuzzle")
-FILE_PREFIX="test-puzzle"
+OS_PATH=os.path.join(os.getcwd(), "Test")
+FILE_PREFIX="test"
 EXTENSION=".jpg"
-CAMERA_PORT=1
-CAPTURE_DELAY=60
+CAMERA_PORT=2 # Surface has two cameras
+CAPTURE_DELAY=60*5
 CAPTURE_HEIGHT=1920
 CAPTURE_WIDTH=1080
+FOCUS=0
 FIRST_RUN=True
 
 class TimelapseCam(cv2.VideoCapture):
-    def __init__(self, cam_port, options, delay, cap_width=1920, cap_height=1080):
+    def __init__(self, cam_port, options, delay, focus_distance, cap_width=1920, cap_height=1080):
         if not cam_port or not options or not delay:
             print("Missing mandatory arguments in constructor!")
             sys.exit(1)
         cv2.VideoCapture.__init__(self, cam_port, options)
         self.set(cv2.CAP_PROP_FRAME_WIDTH, cap_width)
         self.set(cv2.CAP_PROP_FRAME_HEIGHT, cap_height)
+        self.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+        self.set(cv2.CAP_PROP_FOCUS, focus_distance)
         self.delay = delay
 
 class Shot():
@@ -72,12 +75,34 @@ class Shot():
         return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     def compare_images(self):
         '''Compare images using SSIM algorithm to detect if user has left'''
-        curr_img_grey = self.convert_image(self.cap)
+        try:
+            curr_img_grey = self.convert_image(self.cap)
+        except Exception as e:
+            print(f"Unable to convert current image #{self.index} to greyscale")
+            print(e)
         if self.prevcap is None:
-            self.prevcap = cv2.imread(self.make_compare_path(1))
-        prev_grey_img = self.convert_image(self.prevcap)
-        (score, diff) = compare_ssim(curr_img_grey, prev_grey_img, full=True)
-        print(f"Similarity score between image #{self.index} and image #{self.index - 1} is {round(score * 100)}%")
+            try:
+                self.prevcap = cv2.imread(self.make_compare_path(1), cv2.IMREAD_GRAYSCALE)
+                prev_grey_img = self.prevcap
+            except Exception as e:
+                print(f"Unable to convert previous image #{self.index - 1} to greyscale")
+                print(e)
+        else:
+            try:
+                prev_grey_img = self.convert_image(self.prevcap)
+            except Exception as e:
+                print(f"Unable to convert previous image #{self.index - 1} to greyscale")
+                print(e)
+        try:
+            (score, diff) = compare_ssim(curr_img_grey, prev_grey_img, full=True)
+        except Exception as e:
+            print("Cannot compare images")
+            print(e)
+        finally:
+            if score:
+                print(f"Similarity score between image #{self.index} and image #{self.index - 1} is {round(score * 100)}%")
+            else:
+                print("Something went wrong in image comparison")
         self.check = False
         return score
 
@@ -87,7 +112,7 @@ while True:
     img.update_delta()
 
     if img.delta > CAPTURE_DELAY or FIRST_RUN:
-        cam = TimelapseCam(cam_port=CAMERA_PORT, delay=CAPTURE_DELAY, options=cv2.CAP_DSHOW)
+        cam = TimelapseCam(cam_port=CAMERA_PORT, focus_distance=FOCUS, delay=CAPTURE_DELAY, options=cv2.CAP_DSHOW)
         img.cap = cam.read()[1]
         if img.cap.any():
             cv2.imwrite(img.make_unique_path(), img.cap)
